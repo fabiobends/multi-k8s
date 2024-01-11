@@ -1,0 +1,59 @@
+version: 2.1
+jobs:
+  test:
+    machine:
+      image: ubuntu-2004:202010-01
+    steps:
+      - checkout
+      - run:
+          name: Test project
+          command: |
+            docker build -t $DOCKER_ID/react-test -f ./client/Dockerfile.dev ./client
+            docker run -e CI=true $DOCKER_ID/react-test npm test
+  deploy:
+    docker:
+      - image: google/cloud-sdk
+        auth:
+          username: $DOCKER_ID
+          password: $DOCKER_PASSWORD
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Configuring project to GKE
+          command: |
+            echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+            gcloud --quiet config set project multi-k8s-410822
+            gcloud --quiet config set compute/zone us-central1-c
+            gcloud --quiet container clusters get-credentials multi-cluster
+      - run:
+          name: Deploy project
+          command: |
+            export SHA=$(git rev-parse HEAD)
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_ID" --password-stdin
+            docker build -t $DOCKER_ID/multi-client -t $DOCKER_ID/multi-client:$SHA ./client
+            docker build -t $DOCKER_ID/multi-server -t $DOCKER_ID/multi-server:$SHA ./server
+            docker build -t $DOCKER_ID/multi-worker -t $DOCKER_ID/multi-worker:$SHA ./worker
+            docker push $DOCKER_ID/multi-client:latest
+            docker push $DOCKER_ID/multi-server:latest
+            docker push $DOCKER_ID/multi-worker:latest
+            docker push $DOCKER_ID/multi-client:$SHA
+            docker push $DOCKER_ID/multi-server:$SHA
+            docker push $DOCKER_ID/multi-worker:$SHA
+            kubectl apply -f k8s
+            kubectl set image deployments/server-deployment server=$DOCKER_ID/multi-server:$SHA
+            kubectl set image deployments/client-deployment client=$DOCKER_ID/multi-client:$SHA
+            kubectl set image deployments/worker-deployment worker=$DOCKER_ID/multi-worker:$SHA
+
+workflows:
+  project-workflow:
+    jobs:
+      - test
+      - deploy:
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - main
