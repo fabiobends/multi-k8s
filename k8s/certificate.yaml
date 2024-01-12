@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+ 
+kind: Certificate
+metadata:
+  name: fabio-multi-k8s-com-tls
+spec:
+  secretName: fabio-multi-k8s-com
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: fabio-multi-k8s.com
+  dnsNames:
+    - fabio-multi-k8s.com
+    - www.fabio-multi-k8s.com
